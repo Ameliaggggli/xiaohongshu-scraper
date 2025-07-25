@@ -1,0 +1,107 @@
+// ==UserScript==
+// @name         小红书笔记信息抓取器（自动滚动+导出）
+// @namespace    https://github.com/Ameliaggggli/xiaohongshu-scraper
+// @version      1.2
+// @description  自动滑动页面并抓取小红书笔记标题、链接、作者、点赞、评论、收藏等信息，导出为Excel和JSON。
+// @author       GPT
+// @match        https://www.xiaohongshu.com/*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const dataList = [];
+  let collecting = false;
+
+  async function autoScroll(times = 60, delay = 1500) {
+    for (let i = 0; i < times; i++) {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      await sleep(delay);
+      extractDataFromDOM();
+    }
+    collecting = false;
+    console.log('✅ 抓取完成，共抓取笔记数：', dataList.length);
+    alert(`抓取完成，共 ${dataList.length} 条，点击导出即可下载。`);
+  }
+
+  function extractDataFromDOM() {
+    const items = document.querySelectorAll('a[href*="/explore/"]');
+
+    items.forEach(link => {
+      const url = link.href;
+      const title = link.innerText.trim() || '无标题';
+      const container = link.closest('[class*="note-item"], [class*="card"]') || link;
+
+      const authorAnchor = container.querySelector('a[href*="/user/profile/"]');
+      const author = authorAnchor?.innerText.trim() || '未知作者';
+      const authorLink = authorAnchor?.href || '';
+
+      const like = container.querySelector('[class*=like]')?.innerText.replace(/[^\d]/g, '') || '0';
+      const comment = container.querySelector('[class*=comment]')?.innerText.replace(/[^\d]/g, '') || '0';
+      const collect = container.querySelector('[class*=collect]')?.innerText.replace(/[^\d]/g, '') || '0';
+
+      if (!dataList.some(item => item['链接'] === url)) {
+        dataList.push({ 标题: title, 链接: url, 作者: author, 作者主页: authorLink, 点赞: like, 评论: comment, 收藏: collect });
+      }
+    });
+  }
+
+  function exportTo(format = 'excel') {
+    if (!dataList.length) {
+      alert('请先抓取数据');
+      return;
+    }
+
+    if (format === 'json') {
+      const blob = new Blob([JSON.stringify(dataList, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `xiaohongshu_notes_${Date.now()}.json`;
+      link.click();
+    } else {
+      const headers = Object.keys(dataList[0]);
+      const rows = dataList.map(row => headers.map(h => `"${row[h]}"`).join(','));
+      const csv = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `xiaohongshu_notes_${Date.now()}.csv`;
+      link.click();
+    }
+  }
+
+  function createUI() {
+    const panel = document.createElement('div');
+    panel.style = 'position:fixed;top:20px;right:20px;z-index:9999;padding:10px;background:white;border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.2);';
+
+    const startBtn = document.createElement('button');
+    startBtn.innerText = '🚀 开始抓取';
+    startBtn.style = 'margin-bottom:10px;padding:8px;background:#f33;color:#fff;border:none;border-radius:5px;cursor:pointer;';
+    startBtn.onclick = async () => {
+      if (!collecting) {
+        collecting = true;
+        await autoScroll();
+      }
+    };
+
+    const exportExcel = document.createElement('button');
+    exportExcel.innerText = '📄 导出 Excel';
+    exportExcel.style = 'margin-bottom:5px;padding:8px;background:#4caf50;color:#fff;border:none;border-radius:5px;cursor:pointer;';
+    exportExcel.onclick = () => exportTo('excel');
+
+    const exportJson = document.createElement('button');
+    exportJson.innerText = '🧾 导出 JSON';
+    exportJson.style = 'padding:8px;background:#2196f3;color:#fff;border:none;border-radius:5px;cursor:pointer;';
+    exportJson.onclick = () => exportTo('json');
+
+    panel.appendChild(startBtn);
+    panel.appendChild(exportExcel);
+    panel.appendChild(exportJson);
+    document.body.appendChild(panel);
+  }
+
+  window.onload = () => createUI();
+})();
